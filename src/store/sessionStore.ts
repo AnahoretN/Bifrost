@@ -20,6 +20,7 @@ interface SessionState {
   statusMessage: string;
 
   setSelf: (id: PeerId, name: string) => void;
+  setRole: (role: 'host' | 'guest' | null) => void;
   setRoom: (roomId: string, inviteLink: string) => void;
   setStatus: (status: SessionStatus, message?: string) => void;
   upsertPeer: (peer: PeerInfo) => void;
@@ -38,6 +39,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   statusMessage: '',
 
   setSelf: (id, name) => set({ selfId: id, selfName: name }),
+  setRole: (role) => set({ role }),
   setRoom: (roomId, inviteLink) => set({ roomId, inviteLink }),
   setStatus: (status, message) =>
     set((s) => ({ status, statusMessage: message ?? s.statusMessage })),

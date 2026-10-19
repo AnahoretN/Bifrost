@@ -25,6 +25,9 @@ export default function FileRow({ entry, onInfo }: Props) {
   const iAmSender = entry.senderId === selfId;
   const hostHolds = hostId != null && entry.holders.includes(hostId);
   const isLocal = entry.localState === 'local';
+  // Anyone else holding full bytes can serve the download (host preferred,
+  // but a guest that added the file works too).
+  const otherHolders = entry.holders.filter((h) => h !== selfId);
 
   // The transfer for this file that involves me and the host (either direction).
   const candidate =
@@ -35,7 +38,7 @@ export default function FileRow({ entry, onInfo }: Props) {
   const active = candidate && ACTIVE.includes(candidate.state) ? candidate : null;
 
   const canSend = role === 'guest' && iAmSender && !hostHolds && isLocal && !active;
-  const canDownload = !isLocal && hostHolds && !active && hostId != null;
+  const canDownload = !isLocal && !active && otherHolders.length > 0;
 
   return (
     <div className="card flex items-center gap-3 p-3">
@@ -104,9 +107,9 @@ export default function FileRow({ entry, onInfo }: Props) {
               title={
                 isLocal
                   ? 'Already on this device'
-                  : !hostHolds
-                    ? 'The host does not hold this file yet'
-                    : 'Download from the host'
+                  : otherHolders.length === 0
+                    ? 'Nobody holds this file yet'
+                    : `Download from ${otherHolders.includes(hostId ?? '') ? 'the host' : entry.senderName}`
               }
               onClick={() => session.downloadFile(entry.id)}
             >

@@ -106,6 +106,7 @@ class SessionController {
     }
 
     store.setStatus('connecting', 'Creating room…');
+    store.setRole('host');
     this.role = 'host';
     try {
       await this.attach(roomId);
@@ -126,6 +127,7 @@ class SessionController {
   async joinAsGuest(roomId: string, name: string): Promise<void> {
     const store = useSessionStore.getState();
     store.setSelf(this.selfId(), name);
+    store.setRole('guest');
     this.pendingRoomId = roomId;
     this.role = 'guest';
 
@@ -423,14 +425,21 @@ class SessionController {
     }
   }
 
-  /** Download: ask the holder (host in v1) to start a transfer to us. */
+  /**
+   * Download: ask a holder to start a transfer to us. The host is the
+   * preferred serving node, but any holder works (e.g. a guest that added
+   * the file but hasn't sent it yet — their bytes are in the local registry).
+   */
   downloadFile(fileId: string): void {
     const pool = usePoolStore.getState();
     const entry = pool.files[fileId];
     if (!entry || entry.localState === 'local') return;
+    const selfId = useSessionStore.getState().selfId;
+    const holders = entry.holders.filter((h) => h !== selfId);
+    if (holders.length === 0) return;
     const hostId = this.hostId();
-    if (!hostId || !entry.holders.includes(hostId)) return; // UI disables earlier
-    this.transport.sendCtrl({ type: 'DOWNLOAD_REQ', payload: { fileId } }, hostId);
+    const target = hostId && holders.includes(hostId) ? hostId : holders[0];
+    this.transport.sendCtrl({ type: 'DOWNLOAD_REQ', payload: { fileId } }, target);
   }
 
   removeFile(fileId: string): void {
