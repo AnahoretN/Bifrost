@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.local
+.blender-toolkit/
+npm-debug.log*
+
+.claude/
