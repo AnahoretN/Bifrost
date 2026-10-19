@@ -122,17 +122,37 @@ class TrysteroTransport implements Transport {
       livePeers.add(peerId);
       const msg = data as CtrlMessage;
       if (!msg || typeof msg.type !== 'string') return;
-      for (const cb of this.ctrlListeners) cb(msg, peerId);
+      for (const cb of this.ctrlListeners) {
+        try {
+          cb(msg, peerId);
+        } catch (e) {
+          // One bad handler/message must not kill the dispatch loop — the
+          // data channel would otherwise drop everything after it.
+          log.error(`ctrl handler threw on ${msg.type} from ${peerId}:`, e);
+        }
+      }
     });
 
     onDataBin((data, peerId) => {
       livePeers.add(peerId);
-      for (const cb of this.binListeners) cb(data, peerId);
+      for (const cb of this.binListeners) {
+        try {
+          cb(data, peerId);
+        } catch (e) {
+          log.error(`bin handler threw (chunk from ${peerId}):`, e);
+        }
+      }
     });
 
     onDataPrv((data, peerId) => {
       livePeers.add(peerId);
-      for (const cb of this.prvListeners) cb(data, peerId);
+      for (const cb of this.prvListeners) {
+        try {
+          cb(data, peerId);
+        } catch (e) {
+          log.error(`preview handler threw (data from ${peerId}):`, e);
+        }
+      }
     });
 
     room.onPeerJoin((peerId) => {
