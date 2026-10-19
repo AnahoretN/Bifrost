@@ -31,6 +31,12 @@ import { useSessionStore } from '../store/sessionStore';
 import { useTransferStore } from '../store/transferStore';
 import { rescanDirectory, hasFile, findHandle } from '../storage/directoryIndex';
 import { canWrite } from '../storage/fileSystemAccess';
+import {
+  computeLocalState,
+  getLocalFile,
+  registerLocalFile,
+  recomputeLocalStates,
+} from '../storage/localRegistry';
 import { generatePreview } from '../preview/generatePreview';
 import type { FileEntry, PeerId } from '../types';
 
@@ -38,8 +44,6 @@ const log = createLogger('session');
 
 /** Preview bytes we hold — every peer accumulates these so any of them can serve PREVIEW_REQ. */
 const previewBytes = new Map<string, Uint8Array>();
-/** Files added locally this session (bytes not yet in the save folder). */
-const localFiles = new Map<string, File>();
 
 class SessionController {
   readonly engine: TransferEngine;
@@ -369,7 +373,7 @@ class SessionController {
         localState: 'local',
         preview: { ready: false },
       };
-      localFiles.set(id, file);
+      registerLocalFile(id, file);
 
       if (this.role === 'host') {
         pool.addLocal(entry);
@@ -401,7 +405,7 @@ class SessionController {
 
   /** Local bytes for a pool entry, if this device still has them. */
   localFileFor(fileId: string): File | null {
-    return localFiles.get(fileId) ?? null;
+    return getLocalFile(fileId);
   }
 
   /** Send All: push every local file the host doesn't hold yet to the host. */
@@ -413,7 +417,7 @@ class SessionController {
     for (const entry of Object.values(pool.files)) {
       if (entry.senderId !== useSessionStore.getState().selfId) continue;
       if (entry.holders.includes(hostId)) continue;
-      const file = localFiles.get(entry.id);
+      const file = getLocalFile(entry.id);
       if (!file) continue;
       this.engine.sendFile(entry.id, hostId, file, entry.name);
     }
@@ -461,7 +465,7 @@ class SessionController {
   }
 
   private async resolveLocalFile(fileId: string, name: string): Promise<File | null> {
-    const local = localFiles.get(fileId);
+    const local = getLocalFile(fileId);
     if (local) return local;
     // Host serving downloads from its save folder.
     const entry = usePoolStore.getState().files[fileId];
@@ -554,9 +558,7 @@ class SessionController {
           if (have.length > 0) {
             this.transport.sendCtrl({ type: 'HAVE_REPORT', payload: { fileIds: have } }, from);
           }
-          usePoolStore.getState().markLocalStates((e) =>
-            hasFile(e.name, e.size) ? 'local' : 'remote'
-          );
+          recomputeLocalStates();
         });
       },
 
@@ -572,9 +574,7 @@ class SessionController {
         const p = payload as { version: number; added: FileEntry[]; removedIds: string[] };
         if (typeof p?.version !== 'number') return;
         usePoolStore.getState().applyUpdate(p.version, p.added ?? [], p.removedIds ?? []);
-        usePoolStore.getState().markLocalStates((e) =>
-          hasFile(e.name, e.size) ? 'local' : 'remote'
-        );
+        recomputeLocalStates();
       },
 
       onFileAdded: (payload: unknown, from: PeerId) => {
@@ -587,7 +587,14 @@ class SessionController {
           this.broadcastPoolUpdate([], []);
           return;
         }
-        pool.addLocal({ ...entry, holders: entry.holders ?? [from] });
+        // NEVER trust localState from the wire — the sender's optimistic
+        // 'local' must not hide the host's Download button for a file the
+        // host doesn't have. Compute presence locally.
+        pool.addLocal({
+          ...entry,
+          holders: entry.holders ?? [from],
+          localState: computeLocalState(entry),
+        });
         this.broadcastPoolUpdate([entry], []);
       },
 

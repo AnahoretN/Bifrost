@@ -25,6 +25,7 @@ import { createLogger } from '../utils/logger';
 import { clearResume, getResume, setResume } from '../storage/resumeIndex';
 import { openWriteTarget, removeFile, rescanDirectory } from '../storage/directoryIndex';
 import { getRootDir } from '../storage/fileSystemAccess';
+import { recomputeLocalStates } from '../storage/localRegistry';
 import { usePoolStore } from '../store/poolStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useTransferStore } from '../store/transferStore';
@@ -576,6 +577,7 @@ export class TransferEngine {
       await state.writable.close();
       await clearResume(state.fileId);
       await rescanDirectory();
+      recomputeLocalStates(); // the file is now on this device — flip the badge
     } catch (e) {
       log.error('finalize receive failed:', e);
       this.finishReceiver(state.key, 'failed', 'finalize failed');
