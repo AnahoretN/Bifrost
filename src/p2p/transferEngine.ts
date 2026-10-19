@@ -65,6 +65,8 @@ interface SenderState {
   canceled: boolean;
   /** final completion awaited */
   completed: boolean;
+  /** a runSendLoop is currently active for this state */
+  sending: boolean;
   ackWaiters: Set<() => void>;
   rate: RateTracker;
 }
@@ -168,6 +170,8 @@ export class TransferEngine {
       sender.paused = false;
       useTransferStore.getState().setState(key, 'transferring');
       this.notifyAckWaiters(sender);
+      // The paused loop already exited (window drained) — restart it.
+      if (!sender.sending) void this.runSendLoop(sender);
       // Sender-initiated resume: tell the receiver to flip back to transferring.
       this.deps.transport.sendCtrl({ type: 'RESUME', payload: { fileId: sender.fileId } satisfies FileOpPayload }, sender.peerId);
       return;
@@ -275,6 +279,7 @@ export class TransferEngine {
       paused: false,
       canceled: false,
       completed: false,
+      sending: false,
       ackWaiters: new Set(),
       rate: new RateTracker(),
     };
@@ -302,9 +307,10 @@ export class TransferEngine {
   }
 
   private async runSendLoop(state: SenderState): Promise<void> {
+    if (state.sending) return; // a loop is already driving this transfer
+    state.sending = true;
     const store = useTransferStore.getState();
-    try {
-      while (!state.canceled && !state.completed && state.lastSentIndex < state.totalChunks) {
+    try {      while (!state.canceled && !state.completed && state.lastSentIndex < state.totalChunks) {
         if (state.paused) {
           if (state.lastSentIndex - 1 <= state.ackThrough) {
             // Window drained — settle into paused.
@@ -363,6 +369,8 @@ export class TransferEngine {
         this.finishSender(state.key, 'failed', String(e));
         this.pumpSendQueue(state.peerId);
       }
+    } finally {
+      state.sending = false;
     }
   }
 
@@ -805,11 +813,13 @@ export class TransferEngine {
   }
 
   handleBinData(data: unknown, from: PeerId): void {
-    if (!(data instanceof ArrayBuffer)) return;
+    // Trystero delivers binary payloads as Uint8Array (not ArrayBuffer).
+    if (!(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) return;
     const frame = decodeFrame(data);
     if (!frame) return; // truncated — unrecoverable
     if (!frame.crcOk) {
       // Corrupt chunk in flight → ask for a resend of exactly this index.
+      log.warn(`Receiver: CRC mismatch on chunk ${frame.index} of ${frame.fileId} — NAK`);
       this.deps.transport.sendCtrl(
         { type: 'CHUNK_NAK', payload: { fileId: frame.fileId, index: frame.index } },
         from

@@ -47,6 +47,7 @@ const livePeers = new Set<PeerId>();
 class TrysteroTransport implements Transport {
   private room: TrysteroRoom | null = null;
   private lastLeftRoom: TrysteroRoom | null = null;
+  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private sendCtrlAction: ((data: unknown, peerId?: PeerId) => void) | null = null;
   private sendBinAction: ((data: unknown, peerId?: PeerId) => void) | null = null;
   private sendPrvAction: ((data: unknown, peerId?: PeerId) => void) | null = null;
@@ -166,11 +167,32 @@ class TrysteroTransport implements Transport {
       livePeers.delete(peerId);
       for (const cb of this.leaveListeners) cb(peerId);
     });
+
+    // Add-only reconcile with the room's actual peer set (2s): onPeerJoin
+    // misses peers that joined before our listener registered, and inbound
+    // messages alone don't cover silent peers. Removal stays explicit
+    // (onPeerLeave) — a transiently empty getPeers() must not wipe peers.
+    if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+    this.reconcileTimer = setInterval(() => {
+      try {
+        for (const peerId of Object.keys(room.getPeers() || {})) {
+          livePeers.add(peerId);
+        }
+      } catch {
+        // room may be closing
+      }
+    }, 2_000);
   }
 
   async waitForFirstPeer(timeoutMs: number): Promise<boolean> {
     const room = this.room;
     if (!room) return false;
+    // Poll-only by design: this Trystero version's onPeerJoin (a) returns
+    // undefined (our unsubscribe call crashed with "a is not a function"),
+    // (b) fires the callback immediately for every active peer, and (c)
+    // REPLACES the room's single onPeerJoin slot — which would detach the
+    // handler registered in attach(). The 300ms poll + the livePeers
+    // reconcile interval cover peer discovery just as well.
     return new Promise((resolve) => {
       let done = false;
       const finish = (found: boolean) => {
@@ -189,10 +211,6 @@ class TrysteroTransport implements Transport {
         }
         if (livePeers.size > 0) finish(true);
       }, 300);
-      const off = room.onPeerJoin(() => {
-        off();
-        finish(true);
-      });
     });
   }
 
@@ -271,6 +289,10 @@ class TrysteroTransport implements Transport {
   async leave(): Promise<void> {
     const room = this.room;
     if (!room) return;
+    if (this.reconcileTimer) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
     this.lastLeftRoom = room;
     this.room = null;
     this.roomId = null;

@@ -101,20 +101,20 @@ export default function FileRow({ entry, onInfo }: Props) {
                 <Send className="h-4 w-4" /> Send
               </button>
             )}
-            <button
-              className="btn-secondary"
-              disabled={!canDownload}
-              title={
-                isLocal
-                  ? 'Already on this device'
-                  : otherHolders.length === 0
+            {!isLocal && (
+              <button
+                className="btn-secondary"
+                disabled={!canDownload}
+                title={
+                  otherHolders.length === 0
                     ? 'Nobody holds this file yet'
                     : `Download from ${otherHolders.includes(hostId ?? '') ? 'the host' : entry.senderName}`
-              }
-              onClick={() => session.downloadFile(entry.id)}
-            >
-              <Download className="h-4 w-4" /> Download
-            </button>
+                }
+                onClick={() => session.downloadFile(entry.id)}
+              >
+                <Download className="h-4 w-4" /> Download
+              </button>
+            )}
           </>
         )}
         <button className="btn-secondary" title="Details" onClick={() => onInfo(entry)}>

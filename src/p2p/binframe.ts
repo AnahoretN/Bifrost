@@ -29,12 +29,15 @@ export function encodeFrame(fileId: string, index: number, payload: Uint8Array):
 /**
  * Decodes header + payload. Truncated frames return null (unrecoverable);
  * CRC failures still return the frame with `crcOk: false` so the receiver
- * can NAK the right transfer/index.
+ * can NAK the right transfer/index. Accepts both ArrayBuffer and Uint8Array —
+ * this Trystero version reassembles binary payloads into Uint8Array.
  */
-export function decodeFrame(buffer: ArrayBuffer): (BinFrame & { crcOk: boolean }) | null {
-  if (buffer.byteLength < BIN_HEADER_SIZE) return null;
-  const bytes = new Uint8Array(buffer);
-  const view = new DataView(buffer);
+export function decodeFrame(
+  data: ArrayBuffer | Uint8Array
+): (BinFrame & { crcOk: boolean }) | null {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  if (bytes.byteLength < BIN_HEADER_SIZE) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const payload = bytes.slice(BIN_HEADER_SIZE);
   const expectedCrc = view.getUint32(20, false);
   return {

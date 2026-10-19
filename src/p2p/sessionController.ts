@@ -443,6 +443,15 @@ class SessionController {
       log.warn(`Download ${entry.name}: nobody else holds it (holders=%j)`, entry.holders);
       return;
     }
+    // Dedupe: an active transfer for this file is already in flight — repeated
+    // clicks must not stack duplicate offers/accepts on the wire.
+    const active = Object.values(useTransferStore.getState().transfers).find(
+      (t) => t.fileId === fileId && t.direction === 'receive'
+    );
+    if (active && ['queued', 'requesting', 'transferring', 'paused'].includes(active.state)) {
+      log.info(`Download "${entry.name}": already in flight (${active.state}) — ignoring click`);
+      return;
+    }
     const target = hostId && holders.includes(hostId) ? hostId : holders[0];
     log.info(`Download "${entry.name}": requesting from ${target} (holders: ${holders.join(', ')})`);
     this.transport.sendCtrl({ type: 'DOWNLOAD_REQ', payload: { fileId } }, target);
@@ -694,7 +703,7 @@ class SessionController {
   }
 
   private handlePreviewData(data: unknown, from: PeerId): void {
-    if (!(data instanceof ArrayBuffer)) return;
+    if (!(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) return;
     const frame = decodeFrame(data);
     if (!frame || !frame.crcOk) return;
     previewBytes.set(frame.fileId, frame.payload);
