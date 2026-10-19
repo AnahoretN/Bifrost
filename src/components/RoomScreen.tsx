@@ -34,6 +34,9 @@ export default function RoomScreen() {
       <header className="flex items-center justify-between">
         <h1 className="bg-gradient-to-r from-bifrost-300 to-bifrost-600 bg-clip-text text-2xl font-bold text-transparent">
           Bifrost
+          <span className="ml-2 align-middle text-[10px] font-normal tracking-normal text-slate-600">
+            build {__BUILD.slice(11, 19)} UTC
+          </span>
         </h1>
         <div className="flex items-center gap-4">
           <ConnectionStatusBadge />

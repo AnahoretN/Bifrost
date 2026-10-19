@@ -178,6 +178,11 @@ class TrysteroTransport implements Transport {
 
   sendCtrl(msg: CtrlMessage, targetPeer?: PeerId): void {
     if (!this.sendCtrlAction) return;
+    if (targetPeer && !livePeers.has(targetPeer)) {
+      log.warn(
+        `sendCtrl ${msg.type}: target peer ${targetPeer} is NOT in the room (live: ${[...livePeers].join(', ') || 'none'}) — message will be dropped`
+      );
+    }
     try {
       this.sendCtrlAction(msg, targetPeer);
     } catch (e) {

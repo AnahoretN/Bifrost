@@ -438,9 +438,13 @@ class SessionController {
     if (!entry || entry.localState === 'local') return;
     const selfId = useSessionStore.getState().selfId;
     const holders = entry.holders.filter((h) => h !== selfId);
-    if (holders.length === 0) return;
     const hostId = this.hostId();
+    if (holders.length === 0) {
+      log.warn(`Download ${entry.name}: nobody else holds it (holders=%j)`, entry.holders);
+      return;
+    }
     const target = hostId && holders.includes(hostId) ? hostId : holders[0];
+    log.info(`Download "${entry.name}": requesting from ${target} (holders: ${holders.join(', ')})`);
     this.transport.sendCtrl({ type: 'DOWNLOAD_REQ', payload: { fileId } }, target);
   }
 
@@ -644,15 +648,21 @@ class SessionController {
         const p = payload as { fileId?: string };
         if (!p?.fileId) return;
         const entry = usePoolStore.getState().files[p.fileId];
-        if (!entry) return;
+        if (!entry) {
+          log.warn(`DOWNLOAD_REQ from ${from}: unknown file ${p.fileId}`);
+          return;
+        }
+        log.info(`DOWNLOAD_REQ for "${entry.name}" from ${from} — resolving local bytes`);
         void this.resolveLocalFile(p.fileId, entry.name).then((file) => {
           if (!file) {
+            log.warn(`Cannot serve "${entry.name}" to ${from}: no local bytes`);
             this.transport.sendCtrl(
               { type: 'TRANSFER_REJECT', payload: { fileId: p.fileId, reason: 'file not available' } },
               from
             );
             return;
           }
+          log.info(`Serving "${entry.name}" (${file.size} B) to ${from}`);
           this.engine.sendFile(p.fileId!, from, file, entry.name);
         });
       },

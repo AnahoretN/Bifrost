@@ -8,6 +8,10 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 // `dev:lan` (mode 'lan') adds self-signed HTTPS for phones on the network.
 export default defineConfig(({ mode }) => ({
   plugins: [react(), ...(mode === 'lan' ? [basicSsl()] : [])],
+  define: {
+    // Build stamp surfaced in the UI — stale cached tabs are immediately visible.
+    __BUILD: JSON.stringify(new Date().toISOString()),
+  },
   base: './',
   server: {
     host: true,

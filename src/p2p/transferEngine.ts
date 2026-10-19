@@ -136,6 +136,7 @@ export class TransferEngine {
   sendFile(fileId: string, peerId: PeerId, file: File, name?: string): void {
     const key = transferKey(fileId, peerId, 'send');
     if (this.senders.has(key)) return;
+    log.info(`Queue send "${name ?? file.name}" (${file.size} B) to ${peerId}`);
     useTransferStore.getState().upsert(fileId, peerId, 'send', {
       fileName: name ?? file.name,
       bytesTotal: file.size,
@@ -255,6 +256,7 @@ export class TransferEngine {
   ): Promise<void> {
     const file = await this.deps.fileResolver(fileId, name);
     if (!file) {
+      log.warn(`Sender: local bytes for "${name}" not found — failing transfer`);
       useTransferStore.getState().setState(key, 'failed', 'local file not found');
       this.pumpSendQueue(peerId);
       return;
@@ -491,6 +493,9 @@ export class TransferEngine {
       rate: new RateTracker(),
     };
     this.receivers.set(key, state);
+    log.info(
+      `Receiver: accepting "${name}" from ${peerId} — resumeIndex ${resumeIndex}, ${state.totalChunks} chunks expected`
+    );
     useTransferStore.getState().setState(key, 'transferring');
 
     this.deps.transport.sendCtrl(
@@ -536,6 +541,11 @@ export class TransferEngine {
     );
     if (!state || state.finished || state.canceled) return;
 
+    // First chunk of the transfer — visible proof the pipe is flowing.
+    if (state.contiguousThrough < 0 && frame.index === 0) {
+      log.info(`Receiver: first chunk of "${state.name}" arrived from ${from}`);
+    }
+
     try {
       await state.writable.write({
         type: 'write',
@@ -573,6 +583,7 @@ export class TransferEngine {
 
   private async completeReceive(state: ReceiverState): Promise<void> {
     state.finished = true;
+    log.info(`Receiver: "${state.name}" complete (${state.size} B) — closing file`);
     try {
       await state.writable.close();
       await clearResume(state.fileId);
@@ -652,6 +663,7 @@ export class TransferEngine {
   handleOffer(payload: unknown, from: PeerId): void {
     const p = payload as TransferOfferPayload;
     if (!p?.fileId || typeof p.size !== 'number') return;
+    log.info(`Receiver: OFFER "${p.name}" (${p.size} B) from ${from}`);
     const key = transferKey(p.fileId, from, 'receive');
     if (this.receivers.has(key)) return;
     useTransferStore.getState().upsert(p.fileId, from, 'receive', {
@@ -679,6 +691,9 @@ export class TransferEngine {
       state.lastSentIndex = Math.max(state.lastSentIndex, p.resumeIndex);
       state.paused = false;
     }
+    log.info(
+      `Sender: ACCEPT for "${state.name}" from ${from} — resumeIndex ${p.resumeIndex}, sending from chunk ${state.lastSentIndex}/${state.totalChunks}`
+    );
     useTransferStore.getState().setState(key, 'transferring');
     if (state.lastSentIndex < state.totalChunks) {
       void this.runSendLoop(state);
