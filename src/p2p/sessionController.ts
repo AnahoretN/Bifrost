@@ -8,6 +8,7 @@
 // Liveness: host pings every 10s; guest watchdog 45s of silence → reconnect
 // loop (max 12 attempts / 3min). Host announces HOST_RELOADING on pagehide.
 
+import { selfId as trysteroSelfId } from '@trystero-p2p/torrent';
 import {
   DISCOVERY_TIMEOUT,
   HELLO_MAX_RETRIES,
@@ -71,13 +72,14 @@ class SessionController {
 
   // ── Identity ───────────────────────────────────────────────────────────────
 
+  /**
+   * Our peer id IN THE ROOM. Must be Trystero's selfId — not a local UUID:
+   * holders[] and message targeting live in Trystero's peer-id space, and a
+   * localStorage UUID there produced sends to peers that don't exist
+   * ("no peer with id … found") — transfers silently never started.
+   */
   private selfId(): string {
-    let id = localStorage.getItem('bifrost-self-id');
-    if (!id) {
-      id = uuid();
-      localStorage.setItem('bifrost-self-id', id);
-    }
-    return id;
+    return trysteroSelfId;
   }
 
   selfName(): string {
@@ -596,12 +598,13 @@ class SessionController {
           this.broadcastPoolUpdate([], []);
           return;
         }
-        // NEVER trust localState from the wire — the sender's optimistic
-        // 'local' must not hide the host's Download button for a file the
-        // host doesn't have. Compute presence locally.
+        // NEVER trust localState or holders from the wire — localState hides
+        // the host's Download button, and a wrong holder id makes DOWNLOAD_REQ
+        // target a peer that doesn't exist. The verified holder is the sender
+        // (transport peer id `from`); presence is computed locally.
         pool.addLocal({
           ...entry,
-          holders: entry.holders ?? [from],
+          holders: [from],
           localState: computeLocalState(entry),
         });
         this.broadcastPoolUpdate([entry], []);
