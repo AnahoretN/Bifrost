@@ -27,6 +27,9 @@ export interface FileEntry {
   ext: string;
   senderId: PeerId;
   senderName: string;
+  /** Stable per-device id — survives page reloads (senderId doesn't), so the
+   * sender can still remove their file after reconnecting. */
+  senderDeviceId?: string;
   addedAt: number;
   /** peerIds known to hold full bytes. Host maintains; guests receive via POOL_UPDATE. */
   holders: PeerId[];

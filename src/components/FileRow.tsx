@@ -24,7 +24,10 @@ export default function FileRow({ entry, onInfo }: Props) {
 
   const hostId =
     role === 'host' ? selfId : Object.values(peers).find((p) => p.isHost)?.id ?? null;
-  const iAmSender = entry.senderId === selfId;
+  // Ownership survives reloads via the stable device id.
+  const iAmSender =
+    entry.senderId === selfId ||
+    (!!entry.senderDeviceId && entry.senderDeviceId === session.myDeviceId());
   const hostHolds = hostId != null && entry.holders.includes(hostId);
   const isLocal = entry.localState === 'local';
   // Anyone else holding full bytes can serve the download (host preferred,

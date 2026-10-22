@@ -10,6 +10,7 @@
 
 import { selfId as trysteroSelfId } from '@trystero-p2p/torrent';
 import {
+  DEVICE_ID_KEY,
   DISCOVERY_TIMEOUT,
   HELLO_MAX_RETRIES,
   HELLO_RETRY_MS,
@@ -80,6 +81,20 @@ class SessionController {
    */
   private selfId(): string {
     return trysteroSelfId;
+  }
+
+  /** Stable per-device id — proves file ownership across reloads. */
+  private deviceId(): string {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = uuid();
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  }
+
+  myDeviceId(): string {
+    return this.deviceId();
   }
 
   selfName(): string {
@@ -374,6 +389,7 @@ class SessionController {
         ext: extOf(file.name),
         senderId: store.selfId,
         senderName: store.selfName || 'Me',
+        senderDeviceId: this.deviceId(),
         addedAt: Date.now(),
         holders: [store.selfId],
         localState: 'local',
@@ -478,7 +494,10 @@ class SessionController {
     if (this.role === 'host') {
       this.broadcastPoolUpdate();
     } else {
-      this.transport.broadcastCtrl({ type: 'FILE_REMOVED', payload: { fileId } });
+      this.transport.broadcastCtrl({
+        type: 'FILE_REMOVED',
+        payload: { fileId, deviceId: this.deviceId() },
+      });
     }
   }
 
@@ -634,13 +653,17 @@ class SessionController {
       },
 
       onFileRemoved: (payload: unknown, from: PeerId) => {
-        const p = payload as { fileId?: string };
+        const p = payload as { fileId?: string; deviceId?: string };
         if (!p?.fileId || !isHost()) return;
         const entry = usePoolStore.getState().files[p.fileId];
         if (!entry) return;
-        // Only the sender or the host may remove an entry.
-        if (entry.senderId !== from && entry.senderId !== store().selfId) {
-          log.warn(`FILE_REMOVED from ${from} rejected — not the sender of "${entry.name}"`);
+        // Only the file's sender (matched by transport peer id OR stable
+        // device id — peer ids change on reload) or the host may remove it.
+        const isSender = entry.senderId === from || (p.deviceId && entry.senderDeviceId === p.deviceId);
+        if (!isSender) {
+          log.warn(
+            `FILE_REMOVED from ${from} rejected — not the sender of "${entry.name}" (guests cannot delete other people's files)`
+          );
           return;
         }
         log.info(`FILE_REMOVED accepted: "${entry.name}" (request by ${from})`);
@@ -652,12 +675,16 @@ class SessionController {
         const p = payload as { fileIds?: string[] };
         if (!p?.fileIds || !isHost()) return;
         const pool = usePoolStore.getState();
+        const updated: FileEntry[] = [];
         for (const fileId of p.fileIds) {
           const entry = pool.files[fileId];
           if (entry && !entry.holders.includes(from)) {
-            pool.setHolders(fileId, [...entry.holders, from]);
+            const holders = [...entry.holders, from];
+            pool.setHolders(fileId, holders);
+            updated.push({ ...entry, holders });
           }
         }
+        if (updated.length > 0) this.broadcastPoolUpdate(updated, []);
       },
 
       onPreviewReq: (payload: unknown, from: PeerId) => {
@@ -701,8 +728,13 @@ class SessionController {
       onCancel: (p, from) => this.engine.handleCancel(p, from),
       onComplete: (p, from) => {
         this.engine.handleComplete(p, from);
-        // Host now holds full bytes → tell everyone (Download unlocks).
-        if (isHost()) this.broadcastPoolUpdate();
+        // Host now holds full bytes → tell everyone, WITH the updated entry
+        // (holders changed). An empty POOL_UPDATE carries no entry payloads,
+        // so guests would never learn the file moved to the host.
+        if (isHost()) {
+          const updated = usePoolStore.getState().files[(p as { fileId?: string }).fileId ?? ''];
+          this.broadcastPoolUpdate(updated ? [updated] : [], []);
+        }
       },
     };
   }

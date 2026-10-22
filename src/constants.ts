@@ -37,5 +37,7 @@ export const VIDEO_SEEK_TIMEOUT_MS = 5_000;
 export const HOST_ROOM_KEY = 'bifrost-host-room-id'; // dedicated key — a same-browser
 // guest tab must not be able to clobber the host's identity (sessionResume.ts gotcha).
 export const PEER_NAME_KEY = 'bifrost-peer-name';
+export const DEVICE_ID_KEY = 'bifrost-device-id'; // stable per-device id — survives
+// reloads, unlike the per-session Trystero peer id; proves file ownership for removal.
 
 export const ROOM_ID_PREFIX = 'bifrost';

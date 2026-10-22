@@ -9,8 +9,8 @@ import FileDetailDrawer from './FileDetailDrawer';
 
 /**
  * Pool grouped into two primary sections:
- *  • "У хоста" — every file the host holds (host's own + everything sent to it);
- *  • "На устройстве" — files living only on this device (not yet sent);
+ *  • "At host" — every file the host holds (host's own + everything sent to it);
+ *  • "On device" — files living only on this device (not yet sent);
  * plus a fallback section for remote files held by neither (only if non-empty).
  */
 export default function FilePoolList() {
@@ -69,16 +69,16 @@ export default function FilePoolList() {
         </div>
       ) : (
         <div className="space-y-5">
-          <Section title={`У хоста (${atHost.length})`} entries={atHost} onInfo={setDetail} />
+          <Section title={`At host (${atHost.length})`} entries={atHost} onInfo={setDetail} />
           <Section
-            title={`На устройстве (${onDevice.length})`}
+            title={`On device (${onDevice.length})`}
             entries={onDevice}
             onInfo={setDetail}
-            emptyHint="Нет файлов, ожидающих отправки"
+            emptyHint="No files waiting to be sent"
           />
           {elsewhere.length > 0 && (
             <Section
-              title={`У других участников (${elsewhere.length})`}
+              title={`Held by others (${elsewhere.length})`}
               entries={elsewhere}
               onInfo={setDetail}
             />
