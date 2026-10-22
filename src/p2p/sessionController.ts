@@ -168,7 +168,9 @@ class SessionController {
     }
 
     // HELLO retry until the manifest lands (first HELLO can be lost if it
-    // races the peer-join on the host side).
+    // races the peer-join on the host side). Mobile peers may need the whole
+    // retry window for the data channel to open — never shrink it.
+    store.setStatus('connecting', 'Handshaking with the host…');
     this.handshakeDone = false;
     this.helloAttempts = 0;
     const sendHello = () => {
@@ -463,9 +465,17 @@ class SessionController {
     if (!entry) return;
     const selfId = useSessionStore.getState().selfId;
     const allowed = this.role === 'host' || entry.senderId === selfId;
-    if (!allowed) return;
+    if (!allowed) {
+      log.warn(
+        `Remove "${entry.name}" rejected: only the sender or the host may remove (sender=${entry.senderId}, me=${selfId})`
+      );
+      return;
+    }
+    log.info(`Removing "${entry.name}" from the pool (${this.role})`);
+    // Optimistic local removal — the authoritative echo (host's POOL_UPDATE)
+    // restores the entry if the request was invalid.
+    pool.removeLocal(fileId);
     if (this.role === 'host') {
-      pool.removeLocal(fileId);
       this.broadcastPoolUpdate();
     } else {
       this.transport.broadcastCtrl({ type: 'FILE_REMOVED', payload: { fileId } });
@@ -627,8 +637,13 @@ class SessionController {
         const p = payload as { fileId?: string };
         if (!p?.fileId || !isHost()) return;
         const entry = usePoolStore.getState().files[p.fileId];
+        if (!entry) return;
         // Only the sender or the host may remove an entry.
-        if (!entry || (entry.senderId !== from && entry.senderId !== store().selfId)) return;
+        if (entry.senderId !== from && entry.senderId !== store().selfId) {
+          log.warn(`FILE_REMOVED from ${from} rejected — not the sender of "${entry.name}"`);
+          return;
+        }
+        log.info(`FILE_REMOVED accepted: "${entry.name}" (request by ${from})`);
         usePoolStore.getState().removeLocal(p.fileId);
         this.broadcastPoolUpdate([], [p.fileId]);
       },

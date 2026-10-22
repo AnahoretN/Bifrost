@@ -191,10 +191,16 @@ class TrysteroTransport implements Transport {
     // undefined (our unsubscribe call crashed with "a is not a function"),
     // (b) fires the callback immediately for every active peer, and (c)
     // REPLACES the room's single onPeerJoin slot — which would detach the
-    // handler registered in attach(). The 300ms poll + the livePeers
-    // reconcile interval cover peer discovery just as well.
+    // handler registered in attach().
+    //
+    // "Found" means the peer's WebRTC connection is actually OPEN (or an
+    // inbound message proved liveness) — tracker signaling alone is not
+    // enough: on mobile networks the data channel may never open (NAT).
+    // After 60% of the budget we proceed anyway if a peer exists, giving
+    // the HELLO retries a chance while the channel is still forming.
     return new Promise((resolve) => {
       let done = false;
+      const start = Date.now();
       const finish = (found: boolean) => {
         if (done) return;
         done = true;
@@ -202,15 +208,31 @@ class TrysteroTransport implements Transport {
         clearInterval(poll);
         resolve(found);
       };
-      const timeout = setTimeout(() => finish(false), timeoutMs);
+      const timeout = setTimeout(() => {
+        log.warn(
+          `waitForFirstPeer: no open connection within ${timeoutMs}ms — peer states: ${describePeers(room)}`
+        );
+        finish(false);
+      }, timeoutMs);
+      const softDeadline = start + timeoutMs * 0.6;
       const poll = setInterval(() => {
         try {
-          if (Object.keys(room.getPeers() || {}).length > 0) finish(true);
+          const peers = room.getPeers() || {};
+          let anyConnected = false;
+          let anyExists = false;
+          for (const pc of Object.values(peers) as RTCPeerConnection[]) {
+            anyExists = true;
+            if (pc.connectionState === 'connected' || pc.iceConnectionState === 'completed') {
+              anyConnected = true;
+              break;
+            }
+          }
+          if (anyConnected || (anyExists && Date.now() > softDeadline)) finish(true);
         } catch {
           // ignore — room may be closing
         }
         if (livePeers.size > 0) finish(true);
-      }, 300);
+      }, 500);
     });
   }
 
@@ -312,6 +334,21 @@ class TrysteroTransport implements Transport {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Compact peer connection-state dump for failure diagnostics (NAT etc.). */
+function describePeers(room: TrysteroRoom): string {
+  try {
+    return Object.entries(room.getPeers() || {})
+      .map(([id, pc]) => {
+        const conn = (pc as RTCPeerConnection).connectionState;
+        const ice = (pc as RTCPeerConnection).iceConnectionState;
+        return `${id.slice(0, 8)}:${conn ?? '?'}/${ice ?? '?'}`;
+      })
+      .join(', ');
+  } catch {
+    return 'unavailable';
+  }
 }
 
 let instance: TrysteroTransport | null = null;

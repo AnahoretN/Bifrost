@@ -39,7 +39,15 @@ export default function FileDetailDrawer({ entry, onClose }: { entry: FileEntry;
           </button>
         </div>
         <div className="mt-4 flex justify-center">
-          <PreviewThumb entry={entry} />
+          {entry.preview.url ? (
+            <img
+              src={entry.preview.url}
+              alt=""
+              className="max-h-72 w-full rounded-lg border border-slate-700 object-contain"
+            />
+          ) : (
+            <PreviewThumb entry={entry} />
+          )}
         </div>
         <dl className="mt-5 space-y-3 text-sm">
           {rows.map(([k, v]) => (

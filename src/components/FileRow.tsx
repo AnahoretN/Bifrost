@@ -1,9 +1,11 @@
-import { Info, Pause, Play, Send, Trash2, XCircle, Download } from 'lucide-react';
+import { Info, Pause, Play, Send, Trash2, XCircle, Download, Share2 } from 'lucide-react';
 import { session } from '../p2p/sessionController';
 import { useSessionStore } from '../store/sessionStore';
 import { useTransferStore } from '../store/transferStore';
 import { transferKey } from '../utils/id';
 import { formatDate, formatBytes } from '../utils/format';
+import { storageMode } from '../storage/fileSystemAccess';
+import { exportLocalFile } from '../storage/exportLocal';
 import type { FileEntry, TransferState } from '../types';
 import PreviewThumb from './PreviewThumb';
 
@@ -39,6 +41,9 @@ export default function FileRow({ entry, onInfo }: Props) {
 
   const canSend = role === 'guest' && iAmSender && !hostHolds && isLocal && !active;
   const canDownload = !isLocal && !active && otherHolders.length > 0;
+  // Files in app-private storage (OPFS — phones, Firefox) need an explicit
+  // way out: OS share sheet (Android) or a classic download.
+  const canExport = storageMode() === 'opfs' && isLocal;
 
   return (
     <div className="card flex items-center gap-3 p-3">
@@ -113,6 +118,15 @@ export default function FileRow({ entry, onInfo }: Props) {
                 onClick={() => session.downloadFile(entry.id)}
               >
                 <Download className="h-4 w-4" /> Download
+              </button>
+            )}
+            {canExport && (
+              <button
+                className="btn-secondary"
+                title="Save this file out of the app (share sheet or download)"
+                onClick={() => void exportLocalFile(entry.name, entry.size)}
+              >
+                <Share2 className="h-4 w-4" /> Export
               </button>
             )}
           </>

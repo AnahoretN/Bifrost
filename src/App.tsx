@@ -22,6 +22,15 @@ export default function App() {
     void (async () => {
       await loadSavedFolder();
       await queryFolderPermission();
+      // OPFS-only devices (phones, Firefox): reduce eviction risk for the
+      // app-private storage that holds multi-GB downloads.
+      if (storageMode() === 'opfs') {
+        try {
+          await navigator.storage?.persist?.();
+        } catch {
+          // best-effort
+        }
+      }
       await rescanDirectory();
       setStorageReady(true);
     })();
